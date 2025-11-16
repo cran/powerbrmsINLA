@@ -87,7 +87,13 @@ plot_assurance_with_robustness <- function(
     tmp
   }) %>% dplyr::bind_rows()
   # Ribbon: min-max assurance across scenarios per sample size/ grouping
-  group_syms <- c("n", x_effect %||% names(per_scen)[1], intersect(facet_by, colnames(per_scen)))
+  group_syms <- unique(
+    c(
+      "n",
+      x_effect %||% names(per_scen)[1],
+      intersect(facet_by, colnames(per_scen))
+    )
+  )
   ribbon <- per_scen %>%
     dplyr::group_by(!!!rlang::syms(group_syms)) %>%
     dplyr::summarise(

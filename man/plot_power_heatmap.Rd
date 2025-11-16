@@ -17,7 +17,7 @@ plot_power_heatmap(
 \arguments{
 \item{power_results}{Output from a \code{brms_inla_power} function.}
 
-\item{power_metric}{Which metric to plot: \code{"direction"}, \code{"threshold"}, or \code{"rope"}.}
+\item{power_metric}{Which metric to plot: "direction", "threshold", or "rope".}
 
 \item{x_effect}{Name of effect grid column for x-axis (default = first effect).}
 

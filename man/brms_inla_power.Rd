@@ -31,6 +31,8 @@ brms_inla_power(
   seed = 123,
   inla_hyper = NULL,
   compute_bayes_factor = FALSE,
+  bf_method = c("sd", "marglik"),
+  bf_cutoff = 10,
   inla_num_threads = NULL,
   progress = c("auto", "text", "none"),
   family_args = list()
@@ -91,6 +93,12 @@ data.frame with column names matching effect_name.}
 
 \item{compute_bayes_factor}{Logical, compute Bayes Factor if TRUE.}
 
+\item{bf_method}{Character. "sd" = Savage-Dickey at 0 (requires proper Normal prior on
+the tested coefficient); "marglik" = marginal-likelihood Bayes factor via INLA by
+comparing full vs reduced model (slower).}
+
+\item{bf_cutoff}{Numeric Bayes-factor threshold for declaring a "hit" (default 10).}
+
 \item{inla_num_threads}{Character string specifying INLA threading (e.g., "4:1"
 for 4 threads). If NULL (default), automatically detects optimal setting:
 "4:1" for 4+ cores, "2:1" for 2-3 cores, "1:1" otherwise.}
@@ -107,43 +115,4 @@ Provides Bayesian power analysis and assurance calculation using INLA
 (Integrated Nested Laplace Approximation) for efficient computation.
 Implements simulation-based power analysis for generalized linear mixed
 models with automatic threading optimization.
-}
-\examples{
-\donttest{
-# Basic usage with automatic INLA threading
-results <- brms_inla_power(
-  formula = outcome ~ treatment,
-  effect_name = "treatment",
-  effect_grid = c(0.2, 0.5, 0.8),
-  sample_sizes = c(50, 100, 200),
-  nsims = 3
-)
-print(results$summary)
-
-# Manual INLA threading control
-results <- brms_inla_power(
-  formula = outcome ~ treatment,
-  effect_name = "treatment",
-  effect_grid = c(0.2, 0.5, 0.8),
-  sample_sizes = c(50, 100, 200),
-  inla_num_threads = "8:1",  # Use 8 threads for faster computation
-  nsims = 3
-)
-
-# Multi-effect design with threading
-effect_grid <- expand.grid(
-  treatment = c(0, 0.3, 0.6),
-  age_effect = c(0, 0.2)
-)
-results <- brms_inla_power(
-  formula = outcome ~ treatment + age_effect,
-  effect_name = c("treatment", "age_effect"),
-  effect_grid = effect_grid,
-  sample_sizes = c(100, 200, 400),
-  nsims = 3
-)
-print(results$summary)
-}
-# Quick parameter check (runs instantly)
-formals(brms_inla_power)
 }

@@ -2,7 +2,8 @@
 % Please edit documentation in R/plotting-power.R
 \name{plot_power_contour}
 \alias{plot_power_contour}
-\title{Plot Bayesian Power / Assurance Contour (Multi-Effect Grid Friendly)}
+\title{Draw a filled contour plot of assurance for a chosen metric,
+as a function of two effect grid columns and sample size.}
 \usage{
 plot_power_contour(
   power_results,
@@ -19,7 +20,7 @@ plot_power_contour(
 \arguments{
 \item{power_results}{Output from a \code{brms_inla_power} function.}
 
-\item{power_metric}{Which metric to plot: \code{"direction"}, \code{"threshold"}, or \code{"rope"}.}
+\item{power_metric}{Which metric to plot: "direction", "threshold", or "rope".}
 
 \item{x_effect}{Name of effect grid column for x-axis (default = first effect).}
 
