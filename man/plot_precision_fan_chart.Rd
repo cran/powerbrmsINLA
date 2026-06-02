@@ -2,7 +2,7 @@
 % Please edit documentation in R/plotting-precision.R
 \name{plot_precision_fan_chart}
 \alias{plot_precision_fan_chart}
-\title{Precision assurance as a function of sample size}
+\title{Precision conditional power as a function of sample size}
 \usage{
 plot_precision_fan_chart(
   power_results,
@@ -19,7 +19,7 @@ data.frame with at least columns \code{n} and \code{ci_width}, plus any
 effect-grid columns (e.g. \code{treatment}, \code{age_effect}).}
 
 \item{ci_width_target}{Numeric, target width for the credible interval.
-Assurance is defined as Pr(ci_width <= ci_width_target).}
+Conditional power is defined as Pr(ci_width <= ci_width_target).}
 
 \item{effect_filter}{Optional named list for filtering effect-grid
 columns, e.g. \code{list(treatment = 0.3)}.}
@@ -41,4 +41,9 @@ variable.
 \details{
 This implementation works directly from the per-simulation results
 (column \code{ci_width}) and does not rely on the robustness engine.
+
+These plots display \strong{conditional Bayesian power} — the probability of
+achieving the precision criterion at a fixed effect size.  For unconditional
+assurance (averaged over a design prior on effect size), see
+\code{\link[=plot_assurance_curve]{plot_assurance_curve()}}.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/plotting-precision.R
 \name{add_decision_overlay}
 \alias{add_decision_overlay}
-\title{Add sample-size decision overlay to an assurance contour}
+\title{Add sample-size decision overlay to a conditional power contour}
 \usage{
 add_decision_overlay(p, decisions, x_effect = NULL, colour = "red")
 }

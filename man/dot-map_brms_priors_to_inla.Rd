@@ -4,18 +4,33 @@
 \alias{.map_brms_priors_to_inla}
 \title{Map brms Priors to INLA Priors (Multi-Fixed)}
 \usage{
-.map_brms_priors_to_inla(priors, approx_t_as_normal = TRUE)
+.map_brms_priors_to_inla(
+  priors,
+  approx_t_as_normal = TRUE,
+  pc_alpha = 0.05,
+  family_control_supplied = FALSE,
+  inla_family = NULL
+)
 }
 \arguments{
 \item{priors}{brms prior object or data.frame.}
 
 \item{approx_t_as_normal}{Logical; student_t priors with df > 2 are treated as normal.}
+
+\item{pc_alpha}{Tail probability used for PC precision priors.}
+
+\item{family_control_supplied}{Logical; if TRUE, translated sigma priors are
+audited but not applied because direct INLA family controls take precedence.}
+
+\item{inla_family}{INLA family name, when known.}
 }
 \value{
-List with $control_fixed and $hyper_by_re.
+List with $control_fixed, $control_family, $hyper_by_re, and $prior_audit.
 }
 \description{
-Parses a brms prior specification, mapping fixed effect priors to INLA control.fixed.
-Supports normal and student_t (variance-matched if df > 2).
+Parses a brms prior specification, mapping supported priors to INLA controls.
+Supports normal and student_t priors for fixed effects, and exponential
+priors on residual/group-level SDs via INLA PC precision priors. Unsupported
+priors are recorded in the audit instead of being silently translated.
 }
 \keyword{internal}

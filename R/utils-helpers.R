@@ -12,57 +12,6 @@
 `%||%` <- rlang::`%||%`
 
 
-#' Convert brms Family to INLA Family
-#' Maps brms family specifications to corresponding INLA family names.
-#' @param family A brms family object or character string.
-#' @return List with brms and inla elements containing the family names.
-#' @keywords internal
-.to_inla_family <- function(family) {
-  if (is.character(family)) {
-    family_name <- family
-  } else if (inherits(family, "brmsfamily")) {
-    family_name <- family$family
-  } else if (inherits(family, "family")) {
-    family_name <- family$family
-  } else {
-    # Handle other cases - convert to string and extract family name
-    family_str <- as.character(family)
-    # For cases like gaussian(), extract the family name
-    if (length(family_str) > 0 && grepl("\\(\\)", family_str[1])) {
-      family_name <- gsub("\\(\\).*", "", family_str[1])
-    } else {
-      family_name <- family_str[1]
-    }
-  }
-
-  # Map common brms families to INLA equivalents
-  family_map <- c(
-    "gaussian" = "gaussian",
-    "normal" = "gaussian",
-    "binomial" = "binomial",
-    "poisson" = "poisson",
-    "gamma" = "gamma",
-    "beta" = "beta",
-    "negbinomial" = "nbinomial",
-    "student" = "T",
-    "lognormal" = "lognormal",
-    "skew_normal" = "sn"
-  )
-
-  mapped_family <- family_map[family_name]
-  if (is.na(mapped_family)) {
-    warning("Family '", family_name, "' not recognised. Using 'gaussian' as default.")
-    mapped_family <- "gaussian"
-    family_name <- "gaussian"
-  }
-
-  return(list(
-    brms = family_name,
-    inla = unname(mapped_family)
-  ))
-}
-
-
 #' Compute Mean Assurance for a Given Metric (Multi-Effect Compatible)
 #' Summarises simulation results and computes proportion passing for decision rule metric.
 #' @param df Data frame containing simulation results with columns n, effect cols, ok, and metric columns.
@@ -257,14 +206,147 @@
   }
 }
 
-#' Scale Fill for Viridis Discrete Data
-#' @param name Character legend title (default "Assurance")
-#' @return ggplot2 fill scale object
-#' @keywords internal
-.scale_fill_viridis_discrete <- function(name = "Assurance") {
-  if ("scale_fill_viridis_d" %in% getNamespaceExports("ggplot2")) {
-    ggplot2::scale_fill_viridis_d(name = name)  # <- Make sure this is _d not _c
+#' Validate an SD Specification for error_sd or group_sd
+#'
+#' Checks whether the input is a valid positive numeric scalar or one of the
+#' supported distributional list specifications.  Called automatically by
+#' [brms_inla_power()] before the simulation loop; can also be called
+#' directly for interactive validation.
+#'
+#' Supported distributional formats:
+#' * `list(dist = "halfnormal", sd = X, location = Y)` — draws
+#'   `|Normal(location, sd)|`; `location` defaults to 0.
+#' * `list(dist = "lognormal", meanlog = X, sdlog = Y)` — draws from a
+#'   log-normal distribution.
+#' * `list(dist = "uniform", min = X, max = Y)` — draws from Uniform(min, max);
+#'   requires `min >= 0`.
+#'
+#' @param x A positive numeric scalar **or** a named list with element `dist`.
+#' @param arg_name Character string used in error messages (default `"x"`).
+#'
+#' @return `x`, invisibly.  Called for its side effects (stopping on invalid
+#'   input).
+#' @export
+validate_sd_spec <- function(x, arg_name = "x") {
+  # ---- Scalar path ----------------------------------------------------------
+  if (is.numeric(x)) {
+    if (length(x) == 1L && is.finite(x) && x > 0) return(invisible(x))
+    stop(
+      sprintf(
+        "`%s` must be a single positive finite number or a distributional list. Got: numeric of length %d.",
+        arg_name, length(x)
+      ),
+      call. = FALSE
+    )
+  }
+
+  # ---- List path ------------------------------------------------------------
+  if (!is.list(x)) {
+    stop(
+      sprintf(
+        "`%s` must be a positive numeric scalar or a list with a `dist` element. Got class: %s.",
+        arg_name, paste(class(x), collapse = "/")
+      ),
+      call. = FALSE
+    )
+  }
+
+  dist <- x[["dist"]]
+  if (is.null(dist) || !is.character(dist) || length(dist) != 1L) {
+    stop(
+      sprintf(
+        '`%s` list must have a character `dist` element. Supported: "halfnormal", "lognormal", "uniform".',
+        arg_name
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (dist == "halfnormal") {
+    if (is.null(x[["sd"]]) || !is.numeric(x[["sd"]]) || length(x[["sd"]]) != 1L || x[["sd"]] <= 0) {
+      stop(
+        sprintf('`%s = list(dist = "halfnormal", ...)` requires a single numeric `sd > 0`.', arg_name),
+        call. = FALSE
+      )
+    }
+    loc <- x[["location"]] %||% 0
+    if (!is.numeric(loc) || length(loc) != 1L || !is.finite(loc)) {
+      stop(
+        sprintf('`%s = list(dist = "halfnormal", ...)` requires `location` to be a finite numeric scalar.', arg_name),
+        call. = FALSE
+      )
+    }
+  } else if (dist == "lognormal") {
+    if (is.null(x[["meanlog"]]) || !is.numeric(x[["meanlog"]]) || length(x[["meanlog"]]) != 1L ||
+        !is.finite(x[["meanlog"]])) {
+      stop(
+        sprintf('`%s = list(dist = "lognormal", ...)` requires a finite numeric `meanlog`.', arg_name),
+        call. = FALSE
+      )
+    }
+    if (is.null(x[["sdlog"]]) || !is.numeric(x[["sdlog"]]) || length(x[["sdlog"]]) != 1L ||
+        x[["sdlog"]] <= 0) {
+      stop(
+        sprintf('`%s = list(dist = "lognormal", ...)` requires a single numeric `sdlog > 0`.', arg_name),
+        call. = FALSE
+      )
+    }
+  } else if (dist == "uniform") {
+    if (is.null(x[["min"]]) || !is.numeric(x[["min"]]) || length(x[["min"]]) != 1L) {
+      stop(
+        sprintf('`%s = list(dist = "uniform", ...)` requires a numeric `min`.', arg_name),
+        call. = FALSE
+      )
+    }
+    if (is.null(x[["max"]]) || !is.numeric(x[["max"]]) || length(x[["max"]]) != 1L) {
+      stop(
+        sprintf('`%s = list(dist = "uniform", ...)` requires a numeric `max`.', arg_name),
+        call. = FALSE
+      )
+    }
+    if (x[["min"]] < 0) {
+      stop(
+        sprintf('`%s = list(dist = "uniform", ...)` requires `min >= 0`.', arg_name),
+        call. = FALSE
+      )
+    }
+    if (x[["max"]] <= x[["min"]]) {
+      stop(
+        sprintf('`%s = list(dist = "uniform", ...)` requires `max > min`.', arg_name),
+        call. = FALSE
+      )
+    }
   } else {
-    ggplot2::scale_fill_stepsn(colours = viridisLite::viridis(12), name = name)
+    stop(
+      sprintf(
+        '`%s` has unsupported `dist = "%s"`. Supported distributions: "halfnormal", "lognormal", "uniform".',
+        arg_name, dist
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(x)
+}
+
+
+#' Draw One Sample from an SD Specification
+#'
+#' Internal helper used by [brms_inla_power()] to draw a per-iteration value
+#' from a distributional SD specification produced by [validate_sd_spec()].
+#' Only called when `is.list(spec)`.
+#'
+#' @param spec A validated distributional list (see [validate_sd_spec()]).
+#' @return A single positive numeric draw.
+#' @keywords internal
+.sample_sd_spec <- function(spec) {
+  dist <- spec[["dist"]]
+  if (dist == "halfnormal") {
+    loc <- spec[["location"]] %||% 0
+    abs(stats::rnorm(1L, mean = loc, sd = spec[["sd"]]))
+  } else if (dist == "lognormal") {
+    stats::rlnorm(1L, meanlog = spec[["meanlog"]], sdlog = spec[["sdlog"]])
+  } else {  # uniform
+    stats::runif(1L, min = spec[["min"]], max = spec[["max"]])
   }
 }

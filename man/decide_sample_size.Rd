@@ -11,38 +11,136 @@ decide_sample_size(
   rope_in = NULL,
   bf10 = NULL,
   bf_prop_min = 0,
-  targets = NULL
+  targets = NULL,
+  prior_weights = NULL,
+  target = 0.8
 )
 }
 \arguments{
-\item{x}{A list with \verb{$summary} (engine output) or a data.frame summary itself.}
+\item{x}{A list with \verb{$summary} (engine output) or a plain \code{data.frame}
+summary.}
 
-\item{direction}{Numeric in \eqn{[0, 1]}, required power for \code{power_direction} (optional).}
+\item{direction}{Numeric in \eqn{[0,1]}: assurance target (assurance mode)
+or required conditional power (conditional mode) for \code{power_direction}.
+Omit to exclude this metric.}
 
-\item{threshold}{Numeric in \eqn{[0, 1]}, required power for \code{power_threshold} (optional).}
+\item{threshold}{Numeric in \eqn{[0,1]}: assurance target (assurance mode)
+or required conditional power (conditional mode) for \code{power_threshold}.
+Omit to exclude this metric.}
 
-\item{rope_in}{Numeric in \eqn{[0, 1]}, maximum allowed Pr(in ROPE) (optional).
-Note: since summaries usually contain \verb{power_rope = Pr(outside ROPE) >= prob_threshold},
-we compare \code{(1 - power_rope) <= rope_in} when \code{rope_in} is given.}
+\item{rope_in}{Numeric in \eqn{[0,1]}: assurance target (assurance mode) or
+maximum allowed Pr(in ROPE) (conditional mode).  Omit to exclude this
+metric.}
 
-\item{bf10}{Numeric Bayes-factor cutoff (e.g., 10). If provided, we look for a column
-named \verb{bf_hit_<bf10>}; if not found, we fall back to any \verb{bf_hit_*} column present.}
+\item{bf10}{Numeric Bayes-factor cutoff (e.g., 10).  If provided the
+function looks for a column \verb{bf_hit_<bf10>}; if absent it falls back to
+per-simulation bf10 in \code{x$results}.}
 
-\item{bf_prop_min}{Numeric in \eqn{[0, 1]}, the minimum proportion of simulations that must
-achieve BF >= \code{bf10} (default 0).}
+\item{bf_prop_min}{Numeric in \eqn{[0,1]}: minimum proportion of simulations
+that must achieve BF >= \code{bf10} (default 0; conditional mode only).}
 
-\item{targets}{Optional list alternative to the direct args. Ignored if any direct arg
-is non-NULL.}
+\item{targets}{Optional named list alternative to the direct arguments.
+Ignored when any direct argument is non-\code{NULL}.}
+
+\item{prior_weights}{A design prior for assurance mode.  Accepts the same
+formats as \code{\link[=compute_assurance]{compute_assurance()}}: a named numeric vector of weights over
+effect-grid values, or a distribution list such as
+\code{list(dist = "normal", mean = 0.5, sd = 0.2)}.  When \code{NULL} (default),
+the function operates in conditional mode.}
+
+\item{target}{Numeric in \eqn{[0,1]}: fallback assurance level used only
+when a metric is requested without a valid numeric threshold (default
+\code{0.80}).  In normal usage the per-metric value (e.g., \code{direction = 0.70})
+supersedes this argument.}
 }
 \value{
-A data.frame with recommended n per effect combination and the rationale.
+An object of class \code{"powerbrmsINLA_sample_size"} (which inherits from
+\code{data.frame}) with a \code{\link[=print.powerbrmsINLA_sample_size]{print.powerbrmsINLA_sample_size()}} method.
+
+\strong{Assurance mode} columns:
+\describe{
+\item{\code{metric}}{Requested metric name (\code{"direction"}, \code{"threshold"},
+\code{"rope_in"}, \code{"bf10"}).}
+\item{\code{target}}{The assurance target supplied.}
+\item{\code{n_recommended}}{Smallest per-group sample size achieving the
+target, or \code{NA} if none in the grid qualifies.}
+\item{\code{assurance_achieved}}{Assurance value at the recommended n.}
+\item{\code{prior_description}}{Plain-text description of the design prior.}
+}
+
+\strong{Conditional mode} columns:
+\describe{
+\item{\verb{<effect column(s)>}}{One column per effect variable.}
+\item{\code{n_recommended}}{Smallest per-group sample size meeting all
+targets, or \code{NA}.}
+\item{\verb{cond_power_*}}{Conditional power at the recommended n for each
+requested metric.}
+}
 }
 \description{
-Returns the smallest n per effect setting that meets user-specified targets.
-Works with both brms_inla_power() and brms_inla_power_sequential() outputs.
+Returns the smallest per-group sample size that meets user-specified power or
+assurance targets.  Works with \code{\link[=brms_inla_power]{brms_inla_power()}} and related engine
+outputs.
 }
 \details{
-You can pass targets directly via arguments (direction, threshold, rope_in, bf10)
-or via \code{targets = list(direction=..., threshold=..., rope_in=..., bf10=...)}.
-Direct arguments take precedence if supplied.
+Targets may be supplied as direct arguments or via a \code{targets} list; direct
+arguments take precedence.
+\subsection{Modes of operation}{
+
+\strong{Assurance mode} (recommended): supply \code{prior_weights} with a design prior
+over the effect grid.  The function calls \code{\link[=compute_assurance]{compute_assurance()}} internally
+and returns the smallest sample size where \emph{unconditional} Bayesian
+assurance reaches the per-metric target for each requested metric.
+
+In assurance mode the numeric value passed to \code{direction}, \code{threshold},
+\code{rope_in}, or \code{bf10} is the \strong{assurance target} for that metric.
+For example, \code{direction = 0.70} finds the smallest n where direction
+assurance >= 0.70, and \code{threshold = 0.60} finds the smallest n where
+threshold assurance >= 0.60.  Multiple metrics may be requested
+simultaneously, each with its own target.
+
+\strong{Conditional mode} (backward compatible): when \code{prior_weights = NULL}, the
+function selects the smallest n at which the per-cell conditional power meets
+the specified target for each effect-size value.  If the summary contains
+sampled variance columns (e.g., from distributional \code{error_sd}), they are
+averaged out before selecting n.
+}
+}
+\examples{
+# Build a small synthetic power_result without running INLA
+syn_summary <- data.frame(
+  n               = rep(c(50, 100, 200), each = 3),
+  treatment       = rep(c(0.2, 0.5, 0.8), 3),
+  power_direction = c(0.40, 0.65, 0.85,
+                      0.60, 0.82, 0.95,
+                      0.72, 0.90, 0.98),
+  power_threshold = c(0.30, 0.55, 0.75,
+                      0.50, 0.72, 0.88,
+                      0.62, 0.80, 0.92),
+  stringsAsFactors = FALSE
+)
+syn_result <- list(
+  summary  = syn_summary,
+  settings = list(effect_name = "treatment")
+)
+
+# --- Assurance mode: each metric value IS the assurance target ---
+w <- assurance_prior_weights(c(0.2, 0.5, 0.8), dist = "normal",
+                              mean = 0.5, sd = 0.2)
+# Find n where direction assurance >= 0.80 AND threshold assurance >= 0.75
+rec_assurance <- decide_sample_size(
+  syn_result,
+  direction     = 0.80,
+  threshold     = 0.75,
+  prior_weights = w
+)
+print(rec_assurance)
+
+# --- Conditional mode (backward compatible) ---
+rec_cond <- decide_sample_size(syn_result, direction = 0.80)
+print(rec_cond)
+}
+\seealso{
+\code{\link[=compute_assurance]{compute_assurance()}}, \code{\link[=assurance_prior_weights]{assurance_prior_weights()}},
+\code{\link[=beta_weights_on_grid]{beta_weights_on_grid()}}
 }

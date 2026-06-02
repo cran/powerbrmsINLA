@@ -11,7 +11,9 @@
 #' @param Ntrials Optional vector for binomial trials.
 #' @param E Optional vector for Poisson exposure.
 #' @param scale Optional vector scale parameter for INLA families.
-#' @param priors Optional brms::prior specification.
+#' @param priors Optional brms::prior specification. Supported analysis priors
+#'   are translated to INLA controls where possible and recorded in
+#'   `settings$prior_translation`.
 #' @param data_generator Optional function(n, effect) returning a dataset.
 #' @param effect_name Character vector of fixed effect names.
 #' @param effect_grid Vector/data.frame of effect values (supports multi-effect).
@@ -25,8 +27,18 @@
 #' @param effect_threshold Effect-size threshold.
 #' @param credible_level Credible interval level (default 0.95).
 #' @param rope_bounds Optional Region of Practical Equivalence bounds (length 2 vector).
-#' @param error_sd Gaussian residual standard deviation.
-#' @param group_sd Random effects standard deviation.
+#' @param error_sd Residual standard deviation for Gaussian-like families.
+#'   Accepts either:
+#'   * A positive numeric scalar (default `1`), or
+#'   * A named list specifying a distribution from which a fresh value is drawn
+#'     at every simulation iteration:
+#'     - `list(dist = "halfnormal", sd = X, location = Y)` — draws
+#'       `|Normal(location, sd)|`; `location` defaults to 0.
+#'     - `list(dist = "lognormal", meanlog = X, sdlog = Y)`
+#'     - `list(dist = "uniform", min = X, max = Y)` — requires `min >= 0`.
+#'   See [validate_sd_spec()] for validation details.
+#' @param group_sd Random-effects standard deviation.  Accepts the same scalar
+#'   or distributional list formats as `error_sd`.
 #' @param obs_per_group Observations per group.
 #' @param predictor_means Optional named list of predictor means.
 #' @param predictor_sds Optional named list of predictor standard deviations.
@@ -42,7 +54,58 @@
 #'   "4:1" for 4+ cores, "2:1" for 2-3 cores, "1:1" otherwise.
 #' @param progress One of "auto", "text", or "none" for progress display.
 #' @param family_args List of arguments for family-specific data generators.
-#' @return List with results, summary, and settings.
+#' @details
+#' ## Variance uncertainty (distributional error_sd / group_sd)
+#'
+#' When `error_sd` or `group_sd` is supplied as a distributional list, a fresh
+#' scalar value is drawn from the specified distribution at the start of
+#' **each** simulation iteration.  The drawn value is used by the automatic
+#' data generator for that iteration and stored in the per-simulation results
+#' as `sampled_error_sd` or `sampled_group_sd`.  The per-cell summary then
+#' reports the mean and standard deviation of the drawn values.
+#'
+#' This corresponds to integrating power over variance uncertainty, analogous
+#' to the unconditional Bayesian assurance of O'Hagan & Stevens (2001) and
+#' the prior-predictive power framing of Chen et al. (2018).  It is
+#' particularly useful when the residual variance is itself uncertain (e.g.,
+#' estimated from a small pilot study).
+#'
+#' Note: distributional `error_sd` / `group_sd` specifications only affect
+#' the built-in automatic data generator.  When a custom `data_generator`
+#' function is supplied the drawn values are recorded but are **not** injected
+#' into the custom function.
+#'
+#' ## brms prior translation
+#'
+#' The `priors` argument is a convenience interface for selected brms-style
+#' analysis priors. Gaussian fixed-effect and intercept priors are translated
+#' directly to INLA `control.fixed`; `student_t()` fixed-effect priors use the
+#' package's existing Normal approximation. For Gaussian models,
+#' `prior(exponential(rate), class = "sigma")` and
+#' `prior(exponential(rate), class = "sd", group = "...")` are translated to
+#' INLA `pc.prec` priors with `P(sigma > u) = alpha`, where
+#' `u = -log(alpha) / rate` and `alpha = 0.05`. Direct `family_control`
+#' settings take precedence over translated sigma priors. Unsupported brms
+#' priors are reported in `settings$prior_translation` rather than silently
+#' translated. Data-generation controls such as `error_sd` and `group_sd` remain
+#' distinct from INLA analysis priors.
+#'
+#' @examples
+#' \dontrun{
+#' # Integrate over uncertainty in the residual SD using a half-normal prior
+#' # centred at 1.0 with spread 0.3
+#' brms_inla_power(
+#'   formula      = y ~ treatment,
+#'   effect_name  = "treatment",
+#'   effect_grid  = 0.5,
+#'   sample_sizes = c(50, 100),
+#'   nsims        = 50,
+#'   error_sd     = list(dist = "halfnormal", sd = 0.3, location = 1.0),
+#'   seed         = 42
+#' )
+#' }
+#'
+#' @return List with results, summary, diagnostics, and settings.
 #' @export
 brms_inla_power <- function(
     formula,
@@ -140,7 +203,11 @@ brms_inla_power <- function(
   progress   <- match.arg(progress)
   bf_method  <- match.arg(bf_method)
   stopifnot(is.numeric(bf_cutoff), length(bf_cutoff) == 1L, is.finite(bf_cutoff), bf_cutoff > 0)
-  
+  validate_sd_spec(error_sd, "error_sd")
+  validate_sd_spec(group_sd, "group_sd")
+  error_sd_is_dist <- is.list(error_sd)
+  group_sd_is_dist <- is.list(group_sd)
+
   # ===== EFFECT GRID VALIDATION =====
   if (is.data.frame(effect_grid)) {
     grid_names <- colnames(effect_grid)
@@ -181,6 +248,7 @@ brms_inla_power <- function(
   # ===== AUTO-DETECT INLA THREADS =====
   if (is.null(inla_num_threads)) {
     n_cores <- parallel::detectCores()
+    if (!is.numeric(n_cores) || length(n_cores) != 1L || !is.finite(n_cores)) n_cores <- 1L
     inla_num_threads <- if (n_cores >= 4) "4:1" else if (n_cores >= 2) "2:1" else "1:1"
   }
   
@@ -197,14 +265,17 @@ brms_inla_power <- function(
   needs_E       <- fam_inla %in% c("poisson")
   
   # ===== DATA GENERATOR =====
-  if (is.null(data_generator)) {
+  using_auto_generator <- is.null(data_generator)
+  if (using_auto_generator) {
+    # When error_sd / group_sd are distributional, pass a scalar placeholder;
+    # the real per-iteration value is injected via environment mutation in the loop.
     data_generator <- .auto_data_generator(
       formula = formula,
       effect_name = effect_name,
       family = family,
       family_args = family_args,
-      error_sd = error_sd,
-      group_sd = group_sd,
+      error_sd = if (error_sd_is_dist) 1.0 else error_sd,
+      group_sd = if (group_sd_is_dist) 0.5 else group_sd,
       obs_per_group = obs_per_group,
       predictor_means = predictor_means,
       predictor_sds = predictor_sds
@@ -214,10 +285,16 @@ brms_inla_power <- function(
   }
   
   # ===== FORMULA + PRIORS MAP =====
-  tf_alt <- .brms_to_inla_formula2(formula)
+  prior_map <- .map_brms_priors_to_inla(
+    priors,
+    family_control_supplied = !is.null(family_control),
+    inla_family = fam_inla
+  )
+  tf_alt <- .brms_to_inla_formula2(formula, hyper_by_re = prior_map$hyper_by_re)
   inla_formula_alt <- tf_alt$inla_formula
   re_specs         <- tf_alt$re_specs
-  prior_map        <- .map_brms_priors_to_inla(priors)
+  prior_map        <- .mark_unmatched_re_priors(prior_map, tf_alt$re_hyper_groups)
+  prior_map        <- .audit_re_correlation_terms(prior_map, re_specs)
   
   # ===== GUARDS =====
   if (!is.null(rope_bounds) && length(rope_bounds) == 1) {
@@ -234,16 +311,22 @@ brms_inla_power <- function(
     NA_character_
   }
   get_prior_for_coef <- function(eff, prior_map_mean, prior_map_prec) {
-    if (!is.null(prior_map_mean[[eff]])) {
+    if (is.numeric(prior_map_mean) && length(prior_map_mean) == 1L) {
+      mean_val <- as.numeric(prior_map_mean)
+      sd_val <- if (is.numeric(prior_map_prec) && length(prior_map_prec) == 1L && prior_map_prec > 0)
+        sqrt(1 / as.numeric(prior_map_prec)) else NA_real_
+      return(list(mean = mean_val, sd = sd_val))
+    }
+    if (is.list(prior_map_mean) && !is.null(prior_map_mean[[eff]])) {
       mean_val <- prior_map_mean[[eff]]
-      sd_val <- if (!is.null(prior_map_prec[[eff]]) && prior_map_prec[[eff]] > 0)
+      sd_val <- if (is.list(prior_map_prec) && !is.null(prior_map_prec[[eff]]) && prior_map_prec[[eff]] > 0)
         sqrt(1 / prior_map_prec[[eff]]) else NA_real_
       return(list(mean = mean_val, sd = sd_val))
     }
     eff_base <- sub("^(.*?)[0-9]+$", "\\1", eff)
-    if (!is.null(prior_map_mean[[eff_base]])) {
+    if (is.list(prior_map_mean) && !is.null(prior_map_mean[[eff_base]])) {
       mean_val <- prior_map_mean[[eff_base]]
-      sd_val <- if (!is.null(prior_map_prec[[eff_base]]) && prior_map_prec[[eff_base]] > 0)
+      sd_val <- if (is.list(prior_map_prec) && !is.null(prior_map_prec[[eff_base]]) && prior_map_prec[[eff_base]] > 0)
         sqrt(1 / prior_map_prec[[eff_base]]) else NA_real_
       return(list(mean = mean_val, sd = sd_val))
     }
@@ -273,6 +356,15 @@ brms_inla_power <- function(
     for (eff_idx in effect_rows) {
       sim_rows <- vector("list", nsims)
       for (s in seq_len(nsims)) {
+        # ===== SAMPLE SDs (distributional specs) =====
+        cur_error_sd <- if (error_sd_is_dist) .sample_sd_spec(error_sd) else as.numeric(error_sd)
+        cur_group_sd <- if (group_sd_is_dist) .sample_sd_spec(group_sd) else as.numeric(group_sd)
+        if (using_auto_generator) {
+          .gen_env <- environment(data_generator)
+          if (error_sd_is_dist) .gen_env$error_sd <- cur_error_sd
+          if (group_sd_is_dist) .gen_env$group_sd <- cur_group_sd
+        }
+
         # ===== GENERATE DATA =====
         if (is_multi) {
           eff_row <- effect_grid[eff_idx, , drop = FALSE]
@@ -301,7 +393,7 @@ brms_inla_power <- function(
           family = fam_inla,
           control.fixed = prior_map$control_fixed %||% list(),
           control.predictor = list(link = 1),
-          control.family = family_control %||% list(),
+          control.family = family_control %||% prior_map$control_family %||% list(),
           num.threads = inla_num_threads,
           verbose = FALSE
         )
@@ -314,9 +406,19 @@ brms_inla_power <- function(
           inla_args$control.compute <- utils::modifyList(inla_args$control.compute %||% list(), list(mlik = TRUE))
         }
         
+        inla_warnings <- character(0L)
         fit <- tryCatch({
-          suppressWarnings(suppressMessages(do.call(INLA::inla, inla_args)))
+          withCallingHandlers(
+            suppressMessages(do.call(INLA::inla, inla_args)),
+            warning = function(w) {
+              inla_warnings <<- c(inla_warnings, conditionMessage(w))
+              invokeRestart("muffleWarning")
+            }
+          )
         }, error = function(e) e)
+        had_warning  <- length(inla_warnings) > 0L
+        log_mlik_val <- .first_log_mlik(fit)
+        mode_ok      <- !inherits(fit, "error") && !is.null(fit[["mode"]])
         
         # ===== EXTRACT =====
         fitnames <- if (!inherits(fit, "error") && !is.null(fit$summary.fixed))
@@ -331,7 +433,13 @@ brms_inla_power <- function(
             post_prob_threshold = NA_real_,
             post_prob_rope = NA_real_,
             ci_width = NA_real_, ci_lower = NA_real_, ci_upper = NA_real_,
-            bf10 = NA_real_, log10_bf10 = NA_real_
+            bf10 = NA_real_, log10_bf10 = NA_real_,
+            had_warning = had_warning,
+            warning_msg = paste(inla_warnings, collapse = "; "),
+            log_mlik    = NA_real_,
+            mode_ok     = mode_ok,
+            sampled_error_sd = if (error_sd_is_dist) cur_error_sd else NA_real_,
+            sampled_group_sd = if (group_sd_is_dist) cur_group_sd else NA_real_
           )
         } else {
           mean_b_vec <- sapply(target_coefs, function(nm) as.numeric(fit$summary.fixed[nm, "mean"]))
@@ -425,10 +533,16 @@ brms_inla_power <- function(
             post_prob_threshold = post_prob_threshold,
             post_prob_rope = post_prob_rope,
             ci_width = ci_width, ci_lower = ci_lower, ci_upper = ci_upper,
-            bf10 = bf10, log10_bf10 = log10_bf10
+            bf10 = bf10, log10_bf10 = log10_bf10,
+            had_warning = had_warning,
+            warning_msg = paste(inla_warnings, collapse = "; "),
+            log_mlik    = log_mlik_val,
+            mode_ok     = mode_ok,
+            sampled_error_sd = if (error_sd_is_dist) cur_error_sd else NA_real_,
+            sampled_group_sd = if (group_sd_is_dist) cur_group_sd else NA_real_
           )
         }
-        
+
         step <- step + 1L
         if (show_progress) .simple_progress_bar(step, total_steps)
       } # sim loop
@@ -450,16 +564,35 @@ brms_inla_power <- function(
       power_rope      = if (!is.null(rope_bounds)) mean(post_prob_rope <= (1 - prob_threshold), na.rm = TRUE) else NA_real_,
       avg_ci_width    = mean(ci_width, na.rm = TRUE),
       ci_coverage     = if (!is.null(precision_target)) mean(ci_width <= precision_target, na.rm = TRUE) else NA_real_,
-      bf_hit_3        = mean(bf10 >= 3,  na.rm = TRUE),
-      bf_hit_10       = mean(bf10 >= bf_cutoff, na.rm = TRUE),
-      mean_log10_bf   = mean(log10_bf10, na.rm = TRUE),
-      nsims_ok        = sum(ok, na.rm = TRUE),
+      bf_hit_3              = mean(bf10 >= 3,  na.rm = TRUE),
+      bf_hit_10             = mean(bf10 >= bf_cutoff, na.rm = TRUE),
+      mean_log10_bf         = mean(log10_bf10, na.rm = TRUE),
+      nsims_ok              = sum(ok, na.rm = TRUE),
+      mean_sampled_error_sd = if (any(!is.na(sampled_error_sd))) mean(sampled_error_sd, na.rm = TRUE) else NA_real_,
+      sd_sampled_error_sd   = if (any(!is.na(sampled_error_sd))) stats::sd(sampled_error_sd, na.rm = TRUE) else NA_real_,
+      mean_sampled_group_sd = if (any(!is.na(sampled_group_sd))) mean(sampled_group_sd, na.rm = TRUE) else NA_real_,
+      sd_sampled_group_sd   = if (any(!is.na(sampled_group_sd))) stats::sd(sampled_group_sd, na.rm = TRUE) else NA_real_,
       .groups = "drop"
     )
   
-  list(
-    results = res,
-    summary = summ,
+  # ===== DIAGNOSTICS SUMMARY =====
+  diag_summ <- res %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_vars))) %>%
+    dplyr::summarise(
+      prop_warned = mean(had_warning, na.rm = TRUE),
+      n_failed    = sum(!ok),
+      mlik_min    = if (any(is.finite(log_mlik))) min(log_mlik,  na.rm = TRUE) else NA_real_,
+      mlik_max    = if (any(is.finite(log_mlik))) max(log_mlik,  na.rm = TRUE) else NA_real_,
+      mlik_median = if (any(is.finite(log_mlik)))
+        stats::median(log_mlik[is.finite(log_mlik)]) else NA_real_,
+      n_mode_ok   = sum(mode_ok, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  out <- list(
+    results     = res,
+    summary     = summ,
+    diagnostics = diag_summ,
     settings = list(
       formula = formula,
       inla_formula = inla_formula_alt,
@@ -480,8 +613,13 @@ brms_inla_power <- function(
       prior_for_effect = list(
         mean = prior_map$control_fixed$mean,
         sd   = lapply(prior_map$control_fixed$prec, function(p)
-          if (is.numeric(p) && p > 0) sqrt(1/p) else NA_real_)
-      )
+          if (is.numeric(p) && length(p) == 1L && p > 0) sqrt(1/p) else NA_real_)
+      ),
+      prior_translation = prior_map$prior_audit,
+      error_sd = error_sd,
+      group_sd = group_sd
     )
   )
+  class(out) <- "brms_inla_power"
+  out
 }

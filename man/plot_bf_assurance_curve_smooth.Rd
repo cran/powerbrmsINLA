@@ -2,7 +2,8 @@
 % Please edit documentation in R/plotting-bf.R
 \name{plot_bf_assurance_curve_smooth}
 \alias{plot_bf_assurance_curve_smooth}
-\title{Bayes-factor assurance curve with Wilson CIs (multi-effect grid friendly)}
+\title{Conditional Bayesian power curve for the Bayes factor criterion with Wilson CIs
+(multi-effect grid friendly)}
 \usage{
 plot_bf_assurance_curve_smooth(x, cutoff = 10, effect_filter = NULL)
 }
@@ -19,6 +20,7 @@ e.g. \code{list(treatment = 0.6)}.}
 A \code{ggplot} object.
 }
 \description{
-Plots the proportion of simulations in which BF10 meets or exceeds a threshold,
-grouped by sample size and any effect grid variables.
+Plots the conditional power — the proportion of simulations in which BF10
+meets or exceeds a threshold at each fixed effect size — grouped by sample
+size and any effect grid variables.
 }

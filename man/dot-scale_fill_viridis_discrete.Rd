@@ -5,20 +5,14 @@
 \title{Scale Fill for Viridis Discrete Data}
 \usage{
 .scale_fill_viridis_discrete(name = "Assurance")
-
-.scale_fill_viridis_discrete(name = "Assurance")
 }
 \arguments{
 \item{name}{Character legend title (default "Assurance")}
 }
 \value{
 ggplot2 fill scale object
-
-ggplot2 fill scale object
 }
 \description{
-Scale Fill for Viridis Discrete Data
-
 Scale Fill for Viridis Discrete Data
 }
 \keyword{internal}

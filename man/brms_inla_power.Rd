@@ -51,7 +51,9 @@ brms_inla_power(
 
 \item{scale}{Optional vector scale parameter for INLA families.}
 
-\item{priors}{Optional brms::prior specification.}
+\item{priors}{Optional brms::prior specification. Supported analysis priors
+are translated to INLA controls where possible and recorded in
+\code{settings$prior_translation}.}
 
 \item{data_generator}{Optional function(n, effect) returning a dataset.}
 
@@ -77,9 +79,23 @@ data.frame with column names matching effect_name.}
 
 \item{rope_bounds}{Optional Region of Practical Equivalence bounds (length 2 vector).}
 
-\item{error_sd}{Gaussian residual standard deviation.}
+\item{error_sd}{Residual standard deviation for Gaussian-like families.
+Accepts either:
+\itemize{
+\item A positive numeric scalar (default \code{1}), or
+\item A named list specifying a distribution from which a fresh value is drawn
+at every simulation iteration:
+\itemize{
+\item \code{list(dist = "halfnormal", sd = X, location = Y)} — draws
+\verb{|Normal(location, sd)|}; \code{location} defaults to 0.
+\item \code{list(dist = "lognormal", meanlog = X, sdlog = Y)}
+\item \code{list(dist = "uniform", min = X, max = Y)} — requires \code{min >= 0}.
+See \code{\link[=validate_sd_spec]{validate_sd_spec()}} for validation details.
+}
+}}
 
-\item{group_sd}{Random effects standard deviation.}
+\item{group_sd}{Random-effects standard deviation.  Accepts the same scalar
+or distributional list formats as \code{error_sd}.}
 
 \item{obs_per_group}{Observations per group.}
 
@@ -108,11 +124,65 @@ for 4 threads). If NULL (default), automatically detects optimal setting:
 \item{family_args}{List of arguments for family-specific data generators.}
 }
 \value{
-List with results, summary, and settings.
+List with results, summary, diagnostics, and settings.
 }
 \description{
 Provides Bayesian power analysis and assurance calculation using INLA
 (Integrated Nested Laplace Approximation) for efficient computation.
 Implements simulation-based power analysis for generalized linear mixed
 models with automatic threading optimization.
+}
+\details{
+\subsection{Variance uncertainty (distributional error_sd / group_sd)}{
+
+When \code{error_sd} or \code{group_sd} is supplied as a distributional list, a fresh
+scalar value is drawn from the specified distribution at the start of
+\strong{each} simulation iteration.  The drawn value is used by the automatic
+data generator for that iteration and stored in the per-simulation results
+as \code{sampled_error_sd} or \code{sampled_group_sd}.  The per-cell summary then
+reports the mean and standard deviation of the drawn values.
+
+This corresponds to integrating power over variance uncertainty, analogous
+to the unconditional Bayesian assurance of O'Hagan & Stevens (2001) and
+the prior-predictive power framing of Chen et al. (2018).  It is
+particularly useful when the residual variance is itself uncertain (e.g.,
+estimated from a small pilot study).
+
+Note: distributional \code{error_sd} / \code{group_sd} specifications only affect
+the built-in automatic data generator.  When a custom \code{data_generator}
+function is supplied the drawn values are recorded but are \strong{not} injected
+into the custom function.
+}
+
+\subsection{brms prior translation}{
+
+The \code{priors} argument is a convenience interface for selected brms-style
+analysis priors. Gaussian fixed-effect and intercept priors are translated
+directly to INLA \code{control.fixed}; \code{student_t()} fixed-effect priors use the
+package's existing Normal approximation. For Gaussian models,
+\code{prior(exponential(rate), class = "sigma")} and
+\code{prior(exponential(rate), class = "sd", group = "...")} are translated to
+INLA \code{pc.prec} priors with \code{P(sigma > u) = alpha}, where
+\code{u = -log(alpha) / rate} and \code{alpha = 0.05}. Direct \code{family_control}
+settings take precedence over translated sigma priors. Unsupported brms
+priors are reported in \code{settings$prior_translation} rather than silently
+translated. Data-generation controls such as \code{error_sd} and \code{group_sd} remain
+distinct from INLA analysis priors.
+}
+}
+\examples{
+\dontrun{
+# Integrate over uncertainty in the residual SD using a half-normal prior
+# centred at 1.0 with spread 0.3
+brms_inla_power(
+  formula      = y ~ treatment,
+  effect_name  = "treatment",
+  effect_grid  = 0.5,
+  sample_sizes = c(50, 100),
+  nsims        = 50,
+  error_sd     = list(dist = "halfnormal", sd = 0.3, location = 1.0),
+  seed         = 42
+)
+}
+
 }

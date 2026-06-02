@@ -4,15 +4,18 @@
 \alias{.brms_to_inla_formula2}
 \title{Convert brms Formula to INLA Formula (Multi-Fixed Support)}
 \usage{
-.brms_to_inla_formula2(formula, drop_fixed = NULL)
+.brms_to_inla_formula2(formula, drop_fixed = NULL, hyper_by_re = NULL)
 }
 \arguments{
 \item{formula}{brms-style formula.}
 
 \item{drop_fixed}{Character vector of fixed effects to drop (optional).}
+
+\item{hyper_by_re}{Optional named list of INLA hyper prior specifications by
+random-effect grouping factor.}
 }
 \value{
-List: $inla_formula, $re_specs
+List: $inla_formula, $re_specs, and $re_hyper_groups.
 }
 \description{
 Converts brms-style formula to INLA-ready formula, robust to multi-effect, and random effects.

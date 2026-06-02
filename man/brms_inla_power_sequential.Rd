@@ -52,7 +52,9 @@ brms_inla_power_sequential(
 
 \item{scale}{Optional numeric vector for scale parameter in INLA.}
 
-\item{priors}{brms prior specification object.}
+\item{priors}{brms prior specification object. Supported priors are
+translated to INLA controls where possible and audited in
+\code{settings$prior_translation}.}
 
 \item{data_generator}{Optional function(n, effect) to simulate data.}
 

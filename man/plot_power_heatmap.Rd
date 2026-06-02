@@ -2,7 +2,7 @@
 % Please edit documentation in R/plotting-power.R
 \name{plot_power_heatmap}
 \alias{plot_power_heatmap}
-\title{Plot Bayesian Power / Assurance Heatmap (Multi-Effect Grid Friendly)}
+\title{Plot Conditional Bayesian Power Heatmap (Multi-Effect Grid Friendly)}
 \usage{
 plot_power_heatmap(
   power_results,
@@ -31,5 +31,15 @@ plot_power_heatmap(
 A ggplot object.
 }
 \description{
-Heatmap of assurance for a chosen metric across two selected effect grid variables and sample sizes.
+Displays the conditional Bayesian power — the probability of meeting the
+decision criterion at each fixed effect size — as a colour-filled heatmap.
+}
+\details{
+Heatmap of conditional Bayesian power for a chosen metric across two
+selected effect grid variables and sample sizes.
+
+These plots display \strong{conditional Bayesian power} — the probability of
+meeting the decision criterion at a fixed effect size.  For unconditional
+assurance (averaged over a design prior on effect size), see
+\code{\link[=plot_assurance_curve]{plot_assurance_curve()}}.
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/plotting-bf.R
 \name{plot_bf_assurance_curve}
 \alias{plot_bf_assurance_curve}
-\title{Bayes-factor assurance curve (user-facing wrapper)}
+\title{Bayes-factor conditional power curve (user-facing wrapper)}
 \usage{
 plot_bf_assurance_curve(power_results, bf_threshold = 10, effect_filter = NULL)
 }
@@ -20,7 +20,7 @@ A ggplot object.
 }
 \description{
 This is the main function users should call to visualise
-Bayes-factor "power" / assurance. It is a thin wrapper
-around \code{plot_bf_assurance_curve_smooth()}, so all
-existing behaviour is preserved.
+conditional Bayesian power for the Bayes factor criterion.
+It is a thin wrapper around \code{plot_bf_assurance_curve_smooth()},
+so all existing behaviour is preserved.
 }
