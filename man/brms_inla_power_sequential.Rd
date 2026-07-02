@@ -28,7 +28,7 @@ brms_inla_power_sequential(
   obs_per_group = 10,
   predictor_means = NULL,
   predictor_sds = NULL,
-  seed = 1,
+  seed = 123,
   batch_size = 20,
   min_sims = 40,
   max_sims = 600,
@@ -66,7 +66,7 @@ translated to INLA controls where possible and audited in
 
 \item{metric}{Character; one of "direction", "threshold", "rope", or "bf" for Bayesian decision metric.}
 
-\item{target}{Target assurance value for stopping.}
+\item{target}{Target conditional power for the stopping rule (0-1).}
 
 \item{prob_threshold}{Posterior probability threshold for decision metrics.}
 
@@ -108,7 +108,11 @@ If NULL (default), automatically detects optimal setting based on CPU cores.}
 \item{progress}{Logical; if TRUE, show progress messages.}
 }
 \value{
-List containing summary per cell and simulation settings.
+A list of class "brms_inla_power" with a per-cell summary (including
+the conditional_power column, the Monte Carlo estimate at each fixed
+effect value) and simulation settings. Note this is conditional power at
+each grid value, not unconditional assurance; pass the result to
+\code{\link[=compute_assurance]{compute_assurance()}} for the latter.
 }
 \description{
 Simulates assurance sequentially in batches, stopping early per cell based on Wilson confidence intervals.

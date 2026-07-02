@@ -6,8 +6,8 @@
 \usage{
 .plot_decision_assurance_curve_from_summary(
   x,
-  y_metric = c("assurance", "power_direction", "power_threshold", "power_rope",
-    "bf_hit_10"),
+  y_metric = c("assurance", "conditional_power", "power_direction", "power_threshold",
+    "power_rope", "bf_hit_10"),
   target = NULL,
   effect_filter = NULL,
   first_n_label = TRUE
@@ -30,3 +30,4 @@ ggplot object.
 \description{
 Plot decision/assurance curve across n
 }
+\keyword{internal}
